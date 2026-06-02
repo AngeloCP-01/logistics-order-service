@@ -1,4 +1,3 @@
-import { Order } from "@/domain/order/order.js";
 import { OrderStatus } from "@/domain/order/order-status.js";
 import { InvalidOrderTransitionError, ForbiddenError, ValidationError } from "@/domain/shared/errors.js";
 import { makeOrder } from "@tests/unit/domain/order/_order-factory.js";
