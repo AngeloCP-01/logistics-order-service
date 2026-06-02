@@ -1,9 +1,10 @@
 import type { OrderId } from "../shared/order-id.js";
-import { OrderStatus } from "./order-status.js";
+import { OrderStatus, isTerminal } from "./order-status.js";
 import type { OrderItem } from "./order-item.js";
 import type { AddressSnapshot } from "./address-snapshot.js";
-import { InvariantViolationError } from "../shared/errors.js";
+import { InvariantViolationError, InvalidOrderTransitionError, ForbiddenError, ValidationError } from "../shared/errors.js";
 import { OrderCreated } from "../events/order-created.js";
+import { OrderCancelled } from "../events/order-cancelled.js";
 import type { DomainEvent } from "../events/index.js";
 
 export interface CreateOrderArgs {
@@ -15,6 +16,15 @@ export interface CreateOrderArgs {
   items: OrderItem[];
   scheduledFor: Date | null;
   now: Date;
+}
+
+export interface CancellationActor { role: "customer" | "driver" | "admin"; id: string; }
+
+export interface FromPersistenceArgs {
+  id: OrderId; customerId: string; status: OrderStatus;
+  pickup: AddressSnapshot; dropoff: AddressSnapshot; dropoffSourceAddressId: string | null;
+  items: OrderItem[]; assignedDriverId: string | null; scheduledFor: Date | null;
+  cancelReason: string | null; createdAt: Date; updatedAt: Date;
 }
 
 export class Order {
@@ -54,6 +64,30 @@ export class Order {
       args.id, args.customerId, args.pickup, args.dropoff, [...args.items], args.scheduledFor, args.now,
     ));
     return order;
+  }
+
+  static fromPersistence(a: FromPersistenceArgs): Order {
+    return new Order(
+      a.id, a.customerId, a.status, a.pickup, a.dropoff, a.dropoffSourceAddressId,
+      [...a.items], a.assignedDriverId, a.scheduledFor, a.cancelReason, a.createdAt, a.updatedAt,
+    );
+  }
+
+  cancel(actor: CancellationActor, reason: string | null, now: Date): void {
+    if (isTerminal(this._status)) {
+      throw new InvalidOrderTransitionError(this._status, OrderStatus.CANCELLED);
+    }
+    if (this._status === OrderStatus.IN_TRANSIT) {
+      if (actor.role !== "admin") throw new ForbiddenError("only an admin may cancel an in_transit order");
+      if (!reason || reason.trim().length === 0) {
+        throw new ValidationError([{ field: "reason", message: "reason is required to cancel an in_transit order" }]);
+      }
+    }
+    const previous = this._status;
+    this._status = OrderStatus.CANCELLED;
+    this._cancelReason = reason && reason.trim().length > 0 ? reason.trim() : null;
+    this._updatedAt = now;
+    this.events.push(new OrderCancelled(this.id, this.customerId, previous, this._cancelReason, now));
   }
 
   pullEvents(): DomainEvent[] { return this.events.splice(0); }
