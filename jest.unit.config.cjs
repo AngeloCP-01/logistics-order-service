@@ -4,6 +4,8 @@ module.exports = {
   testEnvironment: "node",
   extensionsToTreatAsEsm: [".ts"],
   moduleNameMapper: {
+    "^@/(.*)\\.js$": "<rootDir>/src/$1",
+    "^@tests/(.*)\\.js$": "<rootDir>/tests/$1",
     "^(\\.{1,2}/.*)\\.js$": "$1",
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@tests/(.*)$": "<rootDir>/tests/$1",
