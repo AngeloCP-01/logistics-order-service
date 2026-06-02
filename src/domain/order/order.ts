@@ -1,10 +1,11 @@
 import type { OrderId } from "../shared/order-id.js";
-import { OrderStatus, isTerminal } from "./order-status.js";
+import { OrderStatus, isTerminal, rankOf } from "./order-status.js";
 import type { OrderItem } from "./order-item.js";
 import type { AddressSnapshot } from "./address-snapshot.js";
 import { InvariantViolationError, InvalidOrderTransitionError, ForbiddenError, ValidationError } from "../shared/errors.js";
 import { OrderCreated } from "../events/order-created.js";
 import { OrderCancelled } from "../events/order-cancelled.js";
+import { OrderStatusChanged } from "../events/order-status-changed.js";
 import type { DomainEvent } from "../events/index.js";
 
 export interface CreateOrderArgs {
@@ -88,6 +89,18 @@ export class Order {
     this._cancelReason = reason && reason.trim().length > 0 ? reason.trim() : null;
     this._updatedAt = now;
     this.events.push(new OrderCancelled(this.id, this.customerId, previous, this._cancelReason, now));
+  }
+
+  /** Reflect an authoritative lifecycle event. Returns true if status advanced. */
+  applyReflectedStatus(target: OrderStatus, driverId: string | null, now: Date): boolean {
+    if (this._status === OrderStatus.CANCELLED) return false;          // terminal + authoritative
+    if (rankOf(target) <= rankOf(this._status)) return false;          // duplicate / out-of-order
+    const from = this._status;
+    this._status = target;
+    if (target === OrderStatus.ASSIGNED && driverId) this._assignedDriverId = driverId;
+    this._updatedAt = now;
+    this.events.push(new OrderStatusChanged(this.id, from, target, `system`, now));
+    return true;
   }
 
   pullEvents(): DomainEvent[] { return this.events.splice(0); }
