@@ -1,4 +1,4 @@
-import { Coordinates } from "../shared/coordinates.js";
+import type { Coordinates } from "../shared/coordinates.js";
 import { InvariantViolationError } from "../shared/errors.js";
 
 export interface AddressSnapshotProps {
