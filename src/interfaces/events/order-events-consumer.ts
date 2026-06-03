@@ -70,11 +70,23 @@ export async function startOrderEventsConsumer(deps: OrderConsumerDeps): Promise
       const attempts = (msg.properties.headers?.["x-attempt"] as number | undefined) ?? 0;
       const retryable = err instanceof OrderNotFoundError; // order may still be in flight
       if (retryable && attempts < 3) {
-        logger.warn({ event: "consumer_retry", attempts: attempts + 1, eventId: envelope.eventId }, "retrying");
-        channel.nack(msg, false, true);
+        logger.warn({ event: "consumer_retry", attempts: attempts + 1, eventId: envelope.eventId }, "republishing for retry");
+        // Bounded retry without relying on the x-delayed-message plugin: republish the
+        // original message bytes to the same exchange/routing-key with an incremented
+        // x-attempt header, then ack the original so it is not re-delivered with stale
+        // headers. This ensures attempts is always read from the header that was written
+        // on the previous cycle and prevents the hot-loop caused by plain nack-requeue
+        // (which redelivers an identical message with headers unchanged).
+        channel.publish(
+          LOGISTICS_EXCHANGE,
+          envelope.eventType,
+          msg.content,
+          { contentType: "application/json", headers: { ...(msg.properties.headers ?? {}), "x-attempt": attempts + 1 } },
+        );
+        channel.ack(msg);
       } else {
-        logger.error({ event: "consumer_dlq", err, eventId: envelope.eventId }, "to DLQ");
-        channel.nack(msg, false, false);
+        logger.error({ event: "consumer_dlq", err, eventId: envelope.eventId, attempts }, "to DLQ");
+        channel.nack(msg, false, false); // routes to <queue>.dlq via the queue's dead-letter config
       }
     }
   });
