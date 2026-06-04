@@ -13,9 +13,20 @@ Owns the order aggregate. Creates orders, drives them through their lifecycle (c
 
 - **Tech**: Node 20 LTS, TypeScript, Express, Prisma + Neon Postgres, Jest.
 - **Events published**: `order.created`, `order.status.changed`, `order.cancelled`.
-- **Events consumed**: `dispatch.driver.assigned` (move to `assigned`), `delivery.completed` (move to `completed`).
+- **Events consumed**: `dispatch.driver.assigned` (move to `assigned`), `delivery.in_transit` (move to `in_transit`), `delivery.completed` (move to `completed`).
 - **Sync HTTP outbound**: → `user-service` `/users/{id}/addresses/{addressId}` (resolve customer address at order creation). Through gateway, with service JWT.
 - **Public endpoints** (via gateway): `/v1/orders`, `/v1/orders/{id}`, `/v1/orders/{id}/cancel`, `/v1/orders/me`, `/healthz`, `/readyz`.
+
+### Spec-locked decisions (2026-06-02 — see [`../docs/superpowers/specs/2026-06-02-order-service-design.md`](../docs/superpowers/specs/2026-06-02-order-service-design.md))
+
+1. **Reflector lifecycle** — order mirrors authoritative events; consumes a NEW `delivery.in_transit` alongside `dispatch.driver.assigned` + `delivery.completed`; never invents transitions.
+2. **Advisory scheduling** — `scheduled_for` stored + carried in `order.created` but published immediately; no scheduler/worker.
+3. **Graduated cancellation** — created/assigned: customer or admin; in_transit: admin only + reason; no refund/compensation (no billing in V1).
+4. **Free-text line items** — `order_items(description, quantity≥1, weight_kg?)`, ≥1 per order; no SKU/price/dims.
+5. **Hybrid address input** — dropoff resolved from a saved-address id via user-service (service JWT, ownership-verified via returned `userId`), pickup inline; both snapshotted immutably.
+6. **Monotonic-rank reflector** — reflected events advance only on strictly-higher rank; equal/lower = idempotent no-op; `cancelled` terminal + authoritative (never resurrected).
+
+Delegated: customer-only creation (no admin-on-behalf); no customer `GET /orders` (admin-only list; customers use `/orders/me`).
 
 ## Database (Neon Postgres)
 

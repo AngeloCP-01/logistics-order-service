@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("ORDER_DB_URL")
+}
+
+enum OrderStatus {
+  created
+  assigned
+  in_transit
+  completed
+  cancelled
+}
+
+model Order {
+  id                     String      @id @db.Uuid
+  customerId             String      @map("customer_id") @db.Uuid
+  status                 OrderStatus
+  pickupAddress          Json        @map("pickup_address")
+  dropoffAddress         Json        @map("dropoff_address")
+  dropoffSourceAddressId String?     @map("dropoff_source_address_id") @db.Uuid
+  assignedDriverId       String?     @map("assigned_driver_id") @db.Uuid
+  scheduledFor           DateTime?   @map("scheduled_for") @db.Timestamptz(6)
+  cancelReason           String?     @map("cancel_reason")
+  createdAt              DateTime    @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime    @map("updated_at") @db.Timestamptz(6)
+
+  items   OrderItem[]
+  history OrderStatusHistory[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([customerId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  description String   @db.VarChar(500)
+  quantity    Int
+  weightKg    Decimal? @map("weight_kg") @db.Decimal(8, 3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id         String       @id @db.Uuid
+  orderId    String       @map("order_id") @db.Uuid
+  fromStatus OrderStatus? @map("from_status")
+  toStatus   OrderStatus  @map("to_status")
+  reason     String?
+  changedBy  String       @map("changed_by") @db.VarChar(120)
+  changedAt  DateTime     @map("changed_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model ProcessedEvent {
+  eventId     String   @id @db.Uuid @map("event_id")
+  eventType   String   @map("event_type") @db.VarChar(80)
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
+
+  @@map("processed_events")
+}
