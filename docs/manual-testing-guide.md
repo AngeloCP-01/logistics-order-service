@@ -20,9 +20,14 @@ Bring up the dev infra:
 # Postgres for order-service (docker-compose.yml → :5436)
 docker compose up -d
 
-# RabbitMQ with the management UI (if you don't already have one)
-docker run -d --name rabbit -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management
+# RabbitMQ: the platform's shared broker `logistics-rabbitmq` (dev/dev creds)
+# is probably already running — check with `docker ps`. If it is, use it and
+# skip this. Otherwise start one (note: a bare image defaults to guest/guest):
+#   docker run -d --name logistics-rabbitmq -e RABBITMQ_DEFAULT_USER=dev -e RABBITMQ_DEFAULT_PASS=dev \
+#     -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management
 ```
+
+> **Broker credentials:** the platform's `logistics-rabbitmq` uses **`dev`/`dev`**, so `RABBITMQ_URL=amqp://dev:dev@localhost:5672` (this is the `.env.example` default). A bare `rabbitmq` image you start yourself uses `guest`/`guest` — match `RABBITMQ_URL` to whichever broker you point at, or boot fails with `ACCESS_REFUSED`.
 
 Create your `.env` from the example and apply migrations:
 
@@ -38,7 +43,7 @@ npm run prisma:migrate    # applies 20260602075820_init_orders to :5436
 |---|---|---|
 | `PORT` | `3003` | the API port |
 | `ORDER_DB_URL` | `…:5436/order` | dev Postgres |
-| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672` | broker |
+| `RABBITMQ_URL` | `amqp://dev:dev@localhost:5672` | broker (`logistics-rabbitmq` = dev/dev) |
 | `ORDER_JWT_SECRET` | `change-me-…aaaa` | verifies inbound user JWTs — **remember this value, you sign tokens with it** |
 | `SERVICE_JWT_SECRET` | `change-me-…bbbb` | signs the outbound service JWT to user-service (must differ from `ORDER_JWT_SECRET`) |
 | `ORDER_USER_SERVICE_URL` | `http://localhost:3000` | where the dropoff address is resolved — **you'll point this at the stub or real user-service** |
@@ -157,7 +162,7 @@ docker compose exec -T order-postgres psql -U order -d order \
 
 ## 5. Drive the lifecycle with events (RabbitMQ UI)
 
-order-service advances status only by **consuming** dispatch/tracking events. Simulate them: open the RabbitMQ management UI at **http://localhost:15672** (guest/guest) → **Exchanges** → `logistics.events` → **Publish message**.
+order-service advances status only by **consuming** dispatch/tracking events. Simulate them: open the RabbitMQ management UI at **http://localhost:15672** (login **dev/dev** for `logistics-rabbitmq`; guest/guest for a bare image) → **Exchanges** → `logistics.events` → **Publish message**.
 
 For each, set **Routing key** + **Payload** (replace `<orderId>` with your order's id), then re-`GET /orders/<orderId>` to watch the status climb:
 
@@ -226,7 +231,7 @@ All errors are `application/problem+json` (RFC 7807) with `type`, `title`, `stat
 ```bash
 # Ctrl-C the `npm run dev` and the addr-stub
 docker compose down                 # dev Postgres
-docker rm -f rabbit                 # if you started one here
+# leave logistics-rabbitmq running (shared); only remove a broker you started yourself
 ```
 
 ---
