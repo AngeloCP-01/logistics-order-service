@@ -29,3 +29,4 @@ npm-debug.log*
 
 # Prisma
 prisma/migrations/dev.db*
+node_modules
