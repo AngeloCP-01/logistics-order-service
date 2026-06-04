@@ -23,6 +23,14 @@ export async function startUserServiceStub(
   addresses: Map<string, StubAddress>,
 ): Promise<{ url: string; stop: () => Promise<void> }> {
   const app = express();
+  // Close the socket after each response. Node's global fetch (undici) keeps
+  // connections alive and pools them; against this ephemeral stub a reused
+  // socket can stall (undici's headersTimeout is 300s → looks like a hang).
+  // Forcing `Connection: close` makes every request use a fresh socket.
+  app.use((_req, res, next) => {
+    res.set("Connection", "close");
+    next();
+  });
   app.get("/v1/users/internal/addresses/:id", (req, res) => {
     if (!req.header("x-service-authorization")?.startsWith("Bearer ")) {
       res.status(401).end();
@@ -38,6 +46,7 @@ export async function startUserServiceStub(
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
+  server.keepAliveTimeout = 0;
   const port = (server.address() as { port: number }).port;
   return {
     url: `http://127.0.0.1:${port}`,
