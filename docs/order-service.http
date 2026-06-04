@@ -1,0 +1,323 @@
+### order-service local exercise file
+# REST Client (VS Code) — runs every endpoint of the service.
+# Boot the server first: `npm run dev` (loads .env via tsx --env-file).
+#
+# NOTE on paths: hitting order-service DIRECTLY (this file) uses NO `/v1`
+# prefix — the service mounts at `/orders`. In production the gateway adds
+# `/v1` and strips it before forwarding (so clients call `/v1/orders`).
+#
+# ─────────────────────────────────────────────────────────────────────────
+# PREREQUISITES (order-service has more moving parts than auth/user):
+#
+#   1. Postgres + RabbitMQ. `docker compose up -d` brings up the dev Postgres
+#      (:5436). RabbitMQ must also be reachable at RABBITMQ_URL (run one, e.g.
+#      `docker run -d --name rabbit -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management`).
+#
+#   2. A user JWT signed with ORDER_JWT_SECRET. order-service VERIFIES the
+#      inbound token with ORDER_JWT_SECRET; it does NOT mint tokens. Self-mint
+#      one for a test customer (sub = the customerId, role = customer):
+#        node -e 'const jwt=require("jsonwebtoken"); console.log(jwt.sign({sub:"01940000-0000-7000-8000-000000000001", role:"customer"}, process.env.ORDER_JWT_SECRET, {algorithm:"HS256", expiresIn:"30m"}))'
+#      (run it from this repo so jsonwebtoken + ORDER_JWT_SECRET resolve, e.g.
+#       `export $(grep -v '^#' .env | xargs) && node -e '...'`)
+#
+#   3. CREATE needs a real dropoff address. order-service resolves
+#      `dropoffAddressId` from user-service (a service-JWT call to
+#      `GET {ORDER_USER_SERVICE_URL}/v1/users/internal/addresses/{id}`) and
+#      verifies the returned `userId` equals the caller. Two ways to satisfy this:
+#        A. Run user-service alongside, seed a customer + an address (see its
+#           docs/user-service.http), and set ORDER_USER_SERVICE_URL to it.
+#        B. Run the tiny address stub from docs/manual-testing-guide.md
+#           ("Path B") and point ORDER_USER_SERVICE_URL at it. Fastest way to
+#           exercise order-service in isolation.
+#      The address's owner userId MUST equal the JWT `sub` above, else 403.
+#      For the SERVICE JWT call to a real user-service, order-service's
+#      SERVICE_JWT_SECRET must equal user-service's USER_SERVICE_JWT_SECRET.
+#
+#   4. LIFECYCLE (assigned → in_transit → completed) is event-driven. Publish
+#      dispatch/tracking envelopes via the RabbitMQ management UI
+#      (http://localhost:15672, guest/guest) — see the "Drive the lifecycle"
+#      block near the bottom.
+#
+# Usage:
+#   1. Paste a customer JWT into @customerToken (and an admin JWT into
+#      @adminToken). Set @dropoffAddressId to a real address id owned by the
+#      customer.
+#   2. Click "Send Request". `# @name create` captures the new order id, which
+#      later requests reference as {{create.response.body.id}} — no copy-paste.
+
+@host = http://localhost:3003
+@contentType = application/json
+
+# The customerId here MUST equal the JWT `sub` AND the owner of @dropoffAddressId.
+@customerId = 01940000-0000-7000-8000-000000000001
+
+# Paste valid user JWTs (see prerequisites — node one-liner self-mints them).
+@customerToken = <paste customer JWT (sub = customerId, role = customer)>
+@adminToken    = <paste admin JWT (role = admin)>
+
+# A real address id in user-service owned by @customerId (see prereq #3).
+@dropoffAddressId = 02940000-0000-7000-8000-0000000000a1
+
+
+############################################################
+# Health
+############################################################
+
+### healthz — liveness (always 200)
+GET {{host}}/healthz
+
+### readyz — readiness (200 when DB + RabbitMQ are healthy)
+GET {{host}}/readyz
+
+
+############################################################
+# Create + read flow
+############################################################
+
+### Create an order — pickup inline, dropoff resolved from user-service. Captures the id.
+# @name create
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": {
+    "label": "Warehouse 3",
+    "street": "12 Dock Rd",
+    "city": "Manila",
+    "country": "PH",
+    "lat": 14.5547,
+    "lng": 120.9772
+  },
+  "dropoffAddressId": "{{dropoffAddressId}}",
+  "items": [
+    { "description": "Sealed parcel", "quantity": 2, "weightKg": 1.5 },
+    { "description": "Documents envelope", "quantity": 1 }
+  ]
+}
+
+
+### Create a SCHEDULED order (advisory — publishes order.created immediately)
+# @name createScheduled
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": { "label": "Hub", "street": "9 Ayala Ave", "city": "Makati", "country": "PH", "lat": 14.5547, "lng": 121.0244 },
+  "dropoffAddressId": "{{dropoffAddressId}}",
+  "items": [{ "description": "Cake", "quantity": 1, "weightKg": 2 }],
+  "scheduledFor": "2027-01-01T08:00:00Z"
+}
+
+
+### Get the created order by id (owner)
+GET {{host}}/orders/{{create.response.body.id}}
+Authorization: Bearer {{customerToken}}
+
+
+### List the caller's orders (cursor-paginated)
+GET {{host}}/orders/me
+Authorization: Bearer {{customerToken}}
+
+
+### List the caller's orders filtered by status
+GET {{host}}/orders/me?status=created&limit=20
+Authorization: Bearer {{customerToken}}
+
+
+### Admin reads any order by id
+GET {{host}}/orders/{{create.response.body.id}}
+Authorization: Bearer {{adminToken}}
+
+
+### Admin lists ALL orders (admin-only), optional filters
+GET {{host}}/orders?status=created&limit=50
+Authorization: Bearer {{adminToken}}
+
+
+############################################################
+# Cancellation (graduated authorization)
+############################################################
+
+### Customer cancels a created/assigned order (reason optional)
+# @name cancel
+POST {{host}}/orders/{{create.response.body.id}}/cancel
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "reason": "changed my mind"
+}
+
+
+### Admin cancels (e.g. an in_transit order — reason REQUIRED for in_transit)
+POST {{host}}/orders/{{create.response.body.id}}/cancel
+Authorization: Bearer {{adminToken}}
+Content-Type: {{contentType}}
+
+{
+  "reason": "address unreachable"
+}
+
+
+############################################################
+# Drive the lifecycle — publish via RabbitMQ UI (http://localhost:15672, guest/guest)
+############################################################
+#
+# order-service is a REFLECTOR: it advances status by CONSUMING events from
+# dispatch-service + tracking-service (which don't exist yet). Simulate them by
+# publishing to exchange `logistics.events` with the routing keys below.
+# Replace <orderId> with the id from the create response. Status only ever
+# advances (created < assigned < in_transit < completed); duplicates and
+# out-of-order events are idempotent no-ops; a cancelled order is never revived.
+# After each, GET /orders/<orderId> to watch the status change, and watch a
+# queue bound to `order.status.changed` to see what order-service re-publishes.
+#
+# ────── dispatch.driver.assigned  (created → assigned) ──────
+# Exchange:    logistics.events
+# Routing key: dispatch.driver.assigned
+# Body:
+# {
+#   "eventId": "03940000-0000-7000-8000-aaaaaaaaaaaa",
+#   "eventType": "dispatch.driver.assigned",
+#   "eventVersion": "1.0",
+#   "occurredAt": "2026-06-04T00:00:00Z",
+#   "correlationId": "smoke-1",
+#   "producer": "dispatch-service",
+#   "data": { "orderId": "<orderId>", "driverId": "04940000-0000-7000-8000-000000000d01" }
+# }
+#
+# ────── delivery.in_transit  (assigned → in_transit) ──────
+# Routing key: delivery.in_transit
+# Body:
+# {
+#   "eventId": "03940000-0000-7000-8000-bbbbbbbbbbbb",
+#   "eventType": "delivery.in_transit",
+#   "eventVersion": "1.0",
+#   "occurredAt": "2026-06-04T00:05:00Z",
+#   "correlationId": "smoke-2",
+#   "producer": "tracking-service",
+#   "data": { "orderId": "<orderId>" }
+# }
+#
+# ────── delivery.completed  (in_transit → completed; terminal) ──────
+# Routing key: delivery.completed
+# Body:
+# {
+#   "eventId": "03940000-0000-7000-8000-cccccccccccc",
+#   "eventType": "delivery.completed",
+#   "eventVersion": "1.0",
+#   "occurredAt": "2026-06-04T00:30:00Z",
+#   "correlationId": "smoke-3",
+#   "producer": "tracking-service",
+#   "data": { "orderId": "<orderId>" }
+# }
+#
+# Idempotency probe: publish the SAME envelope twice (same eventId) — the second
+# is a no-op (no duplicate status_history row, no second order.status.changed).
+# Out-of-order probe: publish delivery.completed BEFORE dispatch.driver.assigned —
+# the order jumps to completed; the later assigned event is ignored.
+
+
+############################################################
+# Negative-path probes (intentionally fail; for spot-checking error shapes)
+############################################################
+
+### No auth — expect 401 unauthorized
+GET {{host}}/orders/me
+
+
+### Bogus JWT — expect 401 unauthorized
+GET {{host}}/orders/me
+Authorization: Bearer not.a.real.jwt
+
+
+### Create with a dropoff address owned by someone else — expect 403 forbidden
+# Use a @dropoffAddressId whose owner userId != @customerId.
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": { "street": "x", "city": "Manila", "country": "PH", "lat": 14.5, "lng": 121.0 },
+  "dropoffAddressId": "02940000-0000-7000-8000-00000000ffff",
+  "items": [{ "description": "p", "quantity": 1 }]
+}
+
+
+### Create with a nonexistent dropoff address — expect 422 unprocessable_entity
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": { "street": "x", "city": "Manila", "country": "PH", "lat": 14.5, "lng": 121.0 },
+  "dropoffAddressId": "02940000-0000-7000-8000-00000000dead",
+  "items": [{ "description": "p", "quantity": 1 }]
+}
+
+
+### Create with zero items — expect 400 validation_failed
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": { "street": "x", "city": "Manila", "country": "PH", "lat": 14.5, "lng": 121.0 },
+  "dropoffAddressId": "{{dropoffAddressId}}",
+  "items": []
+}
+
+
+### Create with a 3-letter country — expect 400 validation_failed
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": { "street": "x", "city": "Manila", "country": "PHL", "lat": 14.5, "lng": 121.0 },
+  "dropoffAddressId": "{{dropoffAddressId}}",
+  "items": [{ "description": "p", "quantity": 1 }]
+}
+
+
+### Create with a past scheduledFor — expect 400 validation_failed
+POST {{host}}/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{
+  "pickup": { "street": "x", "city": "Manila", "country": "PH", "lat": 14.5, "lng": 121.0 },
+  "dropoffAddressId": "{{dropoffAddressId}}",
+  "items": [{ "description": "p", "quantity": 1 }],
+  "scheduledFor": "2000-01-01T00:00:00Z"
+}
+
+
+### Read another customer's order — expect 404 (existence-hiding, not 403)
+# Use a different customer's JWT against an order they don't own.
+GET {{host}}/orders/{{create.response.body.id}}
+Authorization: Bearer <paste a DIFFERENT customer's JWT here>
+
+
+### Customer lists ALL orders (admin-only) — expect 403 forbidden
+GET {{host}}/orders
+Authorization: Bearer {{customerToken}}
+
+
+### Cancel an already-cancelled / completed order — expect 409 conflict
+POST {{host}}/orders/{{create.response.body.id}}/cancel
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{ "reason": "second attempt" }
+
+
+### Customer cancels an in_transit order — expect 403 (admin only past pickup)
+# First drive the order to in_transit via the events above, then run this.
+POST {{host}}/orders/{{create.response.body.id}}/cancel
+Authorization: Bearer {{customerToken}}
+Content-Type: {{contentType}}
+
+{ "reason": "too late" }

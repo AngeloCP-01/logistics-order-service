@@ -3,7 +3,7 @@
 > Order CRUD, lifecycle state machine, order history, delivery scheduling.
 
 **Phase:** 3 (Order Service)
-**Status:** ⬜ Not started — scaffold only. Brainstorm an Order spec before implementation.
+**Status:** ✅ v0.1.0 shipped (2026-06-04) + CI green + GHCR image published (`ghcr.io/angelocp-01/order-service:latest`)
 
 ## What this service does
 
@@ -71,6 +71,10 @@ created → assigned → in_transit → completed
 
 ## Pointers
 
-- Spec: [`../docs/superpowers/specs/2026-05-18-platform-decomposition-design.md`](../docs/superpowers/specs/2026-05-18-platform-decomposition-design.md) §4.1, §4.3
-- Plan: TBD (brainstorm + plan in Phase 3)
+- Spec: [`../docs/superpowers/specs/2026-06-02-order-service-design.md`](../docs/superpowers/specs/2026-06-02-order-service-design.md) (+ decomposition §4.1, §4.3)
+- Plan: [`../docs/superpowers/plans/2026-06-02-phase-3-order-service.md`](../docs/superpowers/plans/2026-06-02-phase-3-order-service.md)
+- OpenAPI: [`../logistics-contracts/openapi/order-service.yaml`](../logistics-contracts/openapi/order-service.yaml)
+- Local exercise file (REST Client): [`docs/order-service.http`](docs/order-service.http)
+- Manual testing guide: [`docs/manual-testing-guide.md`](docs/manual-testing-guide.md)
+- Retro: [`../docs/superpowers/retros/3-order-service.md`](../docs/superpowers/retros/3-order-service.md)
 - Tracker: [`../docs/superpowers/tracker.md`](../docs/superpowers/tracker.md)

@@ -72,6 +72,8 @@ npm run typecheck && npm run lint
 
 Unit tests use in-memory fakes; integration tests exercise the real wired app + event consumer against real containers (the layer that catches route-mount, ESM, and async-error bugs unit tests miss).
 
+**Manual / exploratory testing:** [`docs/manual-testing-guide.md`](docs/manual-testing-guide.md) is a step-by-step walkthrough (with a fast "isolated" path using a tiny address stub), and [`docs/order-service.http`](docs/order-service.http) is a VS Code REST Client file that exercises every endpoint + the event-driven lifecycle.
+
 ## Architecture
 
 Clean Architecture: `src/{domain,application,infrastructure,interfaces,config}` + `server.ts` (composition root). Dependencies point inward; `infrastructure` implements the ports declared in `domain`/`application`. See the spec §11 for the full layout.
