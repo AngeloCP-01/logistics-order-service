@@ -50,14 +50,14 @@
 @contentType = application/json
 
 # The customerId here MUST equal the JWT `sub` AND the owner of @dropoffAddressId.
-@customerId = 01940000-0000-7000-8000-000000000001
+@customerId = 47913fd3-7bf9-4182-9d94-6144ddb74cfe
 
 # Paste valid user JWTs (see prerequisites — node one-liner self-mints them).
-@customerToken = <paste customer JWT (sub = customerId, role = customer)>
+@customerToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0NzkxM2ZkMy03YmY5LTQxODItOWQ5NC02MTQ0ZGRiNzRjZmUiLCJyb2xlIjoiY3VzdG9tZXIiLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlhdCI6MTc4MDYyMzM2MCwiZXhwIjoxNzgwNjI0MjYwLCJhdWQiOiJsb2dpc3RpY3MtcGxhdGZvcm0iLCJpc3MiOiJhdXRoLXNlcnZpY2UifQ.CxmrGa2FZC4LQLfyE3Uzaw3aNMcwA-m6rahDEpepQI4
 @adminToken    = <paste admin JWT (role = admin)>
 
 # A real address id in user-service owned by @customerId (see prereq #3).
-@dropoffAddressId = 02940000-0000-7000-8000-0000000000a1
+@dropoffAddressId = 019e954e-d458-7885-bbaa-c1ce6579e922
 
 
 ############################################################
