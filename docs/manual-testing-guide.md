@@ -44,9 +44,26 @@ npm run prisma:migrate    # applies 20260602075820_init_orders to :5436
 | `PORT` | `3003` | the API port |
 | `ORDER_DB_URL` | `…:5436/order` | dev Postgres |
 | `RABBITMQ_URL` | `amqp://dev:dev@localhost:5672` | broker (`logistics-rabbitmq` = dev/dev) |
-| `ORDER_JWT_SECRET` | `change-me-…aaaa` | verifies inbound user JWTs — **remember this value, you sign tokens with it** |
+| `ORDER_JWT_SECRET` | `change-me-…aaaa` | verifies inbound user JWTs (see alignment box below) |
 | `SERVICE_JWT_SECRET` | `change-me-…bbbb` | signs the outbound service JWT to user-service (must differ from `ORDER_JWT_SECRET`) |
-| `ORDER_USER_SERVICE_URL` | `http://localhost:3000` | where the dropoff address is resolved — **you'll point this at the stub or real user-service** |
+| `ORDER_USER_SERVICE_URL` | `http://localhost:3001` | where the dropoff address is resolved — user-service (**:3001**, not auth's :3000) or the stub |
+
+> ### ⚠️ Cross-service alignment — the #1 source of local-testing pain
+> order-service talks to two other services, and the **secrets must match exactly** (a one-character diff reads as "invalid token" / a 404):
+>
+> | If you use… | This must hold | Symptom if wrong |
+> |---|---|---|
+> | An **auth-service-minted** user token | `ORDER_JWT_SECRET` **==** auth-service's `AUTH_JWT_SECRET` | `401 invalid token` on order-service |
+> | **Real user-service** for the address | order's `SERVICE_JWT_SECRET` **==** user-service's `USER_SERVICE_JWT_SECRET` | `500`/`401` resolving the dropoff |
+> | The same token on **user-service** (to create the address) | user-service's `USER_JWT_SECRET` **==** `AUTH_JWT_SECRET` | `401` on `POST /users/me/addresses` |
+> | `ORDER_USER_SERVICE_URL` | points at **user-service :3001** (or the stub), **not** auth's **:3000** | `422 dropoff address … not found` (you hit the wrong service) |
+>
+> And always: `ORDER_JWT_SECRET` **≠** `SERVICE_JWT_SECRET` (boot refuses otherwise). Quick check:
+> ```bash
+> grep -h '^AUTH_JWT_SECRET=' ../logistics-auth-service/.env; grep -h '^ORDER_JWT_SECRET=' .env      # equal?
+> grep -h '^USER_SERVICE_JWT_SECRET=' ../logistics-user-service/.env; grep -h '^SERVICE_JWT_SECRET=' .env   # equal?
+> ```
+> **Restart order-service after any `.env` change** — env is read once at boot.
 
 ---
 
@@ -58,8 +75,11 @@ Save this as `/tmp/addr-stub.js` — a dependency-free HTTP server that answers 
 
 ```js
 // /tmp/addr-stub.js  —  run: node /tmp/addr-stub.js
+// Set ORDER_USER_SERVICE_URL=http://localhost:3001 (the default) to point order-service here.
 const http = require("node:http");
-const CUSTOMER = "01940000-0000-7000-8000-000000000001"; // must match your JWT `sub`
+const CUSTOMER = "01940000-0000-7000-8000-000000000001"; // MUST equal your JWT `sub`
+// ^ if you use a real auth-service token, set this to that token's `sub`
+//   (decode at jwt.io), e.g. "71a2b580-5692-4687-a27d-c1cf1ec8d94d".
 const ADDRESSES = {
   "02940000-0000-7000-8000-0000000000a1": {
     id: "02940000-0000-7000-8000-0000000000a1", userId: CUSTOMER,
@@ -78,11 +98,12 @@ http.createServer((req, res) => {
   const a = ADDRESSES[m[1]];
   if (!a) { res.writeHead(404).end(); return; }       // → order-service maps to 422
   res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(a));
-}).listen(3000, () => console.log("addr-stub on http://localhost:3000"));
+}).listen(3001, () => console.log("addr-stub on http://localhost:3001"));
 ```
 
 ```bash
-node /tmp/addr-stub.js          # leave running; keep ORDER_USER_SERVICE_URL=http://localhost:3000
+node /tmp/addr-stub.js          # leave running; ORDER_USER_SERVICE_URL=http://localhost:3001 (default) points here
+# NOTE: the stub and a real user-service both want :3001 — run only ONE of them.
 ```
 
 The stub ignores the service-JWT signature (it only checks the header is present), so you don't need to align `SERVICE_JWT_SECRET` with anything for Path B.
