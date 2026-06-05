@@ -35,11 +35,20 @@ export function errorMapper(): ErrorRequestHandler {
     }
 
     req.log?.error({ err }, "unhandled_error");
-    return res.status(500).type("application/problem+json").json({
+    const body: Record<string, unknown> = {
       type: "urn:logistics:order:internal",
       title: "Internal Server Error",
       status: 500,
       instance: requestId,
-    });
+    };
+    // In non-production, surface the underlying cause in the RESPONSE so a 500 is
+    // debuggable without tailing logs. NEVER do this in production — it leaks
+    // internals/stack traces to clients.
+    if (process.env.NODE_ENV !== "production" && err instanceof Error) {
+      body.detail = err.message;
+      body.errorName = err.name;
+      body.stack = err.stack?.split("\n").slice(1, 6).map((l) => l.trim());
+    }
+    return res.status(500).type("application/problem+json").json(body);
   };
 }
