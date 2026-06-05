@@ -22,6 +22,38 @@ import { HealthController } from "./interfaces/http/controllers/health-controlle
 import { startOrderEventsConsumer } from "./interfaces/events/order-events-consumer.js";
 import { createApp } from "./app.js";
 
+/**
+ * A boot-time failure attributed to a specific dependency/config, so the log
+ * names WHAT failed (Postgres? RabbitMQ? the port?) and how to fix it — instead
+ * of surfacing a raw driver message like "403 ACCESS-REFUSED" with no context.
+ */
+class BootError extends Error {
+  constructor(
+    readonly dependency: string,
+    readonly envVar: string | null,
+    readonly hint: string | null,
+    cause: unknown,
+  ) {
+    const causeMsg = cause instanceof Error ? cause.message : String(cause);
+    super(
+      `Failed to ${dependency}${envVar ? ` (check ${envVar})` : ""}: ${causeMsg}` +
+        (hint ? ` — ${hint}` : ""),
+    );
+    this.name = "BootError";
+  }
+}
+
+async function bootStep<T>(
+  meta: { what: string; envVar?: string; hint?: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (cause) {
+    throw new BootError(meta.what, meta.envVar ?? null, meta.hint ?? null, cause);
+  }
+}
+
 async function main(): Promise<void> {
   if (process.argv[2] === "--healthcheck") {
     process.stdout.write(JSON.stringify({ ok: true, service: "order-service" }) + "\n");
@@ -30,8 +62,18 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const logger = createLogger(env);
   const prisma = createPrismaClient(env);
-  await prisma.$connect();
-  const { connection, channel } = await connect(env.RABBITMQ_URL);
+  await bootStep(
+    { what: "connect to Postgres", envVar: "ORDER_DB_URL", hint: "is the database reachable and the URL/credentials correct?" },
+    () => prisma.$connect(),
+  );
+  const { connection, channel } = await bootStep(
+    {
+      what: "connect to RabbitMQ",
+      envVar: "RABBITMQ_URL",
+      hint: "is the broker running and are the credentials right? (the platform `logistics-rabbitmq` uses dev/dev, not guest/guest)",
+    },
+    () => connect(env.RABBITMQ_URL),
+  );
 
   const clock = new SystemClock();
   const uow = new PrismaUnitOfWork(prisma);
@@ -58,10 +100,24 @@ async function main(): Promise<void> {
   const userJwt = new UserJwtVerifier(env.ORDER_JWT_SECRET);
 
   const app = createApp({ logger, health, userJwt, orders });
-  const consumer = await startOrderEventsConsumer({ channel, logger, reflect });
+  const consumer = await bootStep(
+    { what: "start the order events consumer", envVar: "RABBITMQ_URL" },
+    () => startOrderEventsConsumer({ channel, logger, reflect }),
+  );
 
   const server = http.createServer(app);
-  server.listen(env.PORT, () => logger.info({ event: "listening", port: env.PORT }));
+  await bootStep(
+    { what: "bind the HTTP server", envVar: "PORT", hint: "is the port already in use?" },
+    () =>
+      new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(env.PORT, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      }),
+  );
+  logger.info({ event: "listening", port: env.PORT });
 
   const shutdown = async (signal: string): Promise<void> => {
     shuttingDown = true;
@@ -86,6 +142,15 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(JSON.stringify({ level: "error", event: "boot_failed", err: String(err) }) + "\n");
+  const isBoot = err instanceof BootError;
+  process.stderr.write(
+    JSON.stringify({
+      level: "error",
+      event: "boot_failed",
+      dependency: isBoot ? err.dependency : undefined,
+      configHint: isBoot ? err.envVar ?? undefined : undefined,
+      message: err instanceof Error ? err.message : String(err),
+    }) + "\n",
+  );
   process.exit(1);
 });
