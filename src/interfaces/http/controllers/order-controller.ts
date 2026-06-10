@@ -44,7 +44,7 @@ export class OrderController {
         req.requestId!,
       );
       const order = await this.getOrder.execute({ orderId: id, caller: { id: req.userId!, role: req.role! } });
-      res.status(201).location(`/orders/${id}`).json(toOrderResponse(order));
+      res.status(201).location(`/v1/orders/${id}`).json(toOrderResponse(order));
     } catch (e) {
       next(e);
     }
