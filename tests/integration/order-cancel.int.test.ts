@@ -15,22 +15,22 @@ describe("Order cancellation (integration)", () => {
 
   async function createOrder(): Promise<string> {
     fx.stubAddresses.set(ADDR.id, ADDR);
-    const res = await request(fx.baseUrl).post("/orders").set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send(body);
+    const res = await request(fx.baseUrl).post("/v1/orders").set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send(body);
     return res.body.id;
   }
 
   it("customer cancels a created order (200) and a second cancel is 409", async () => {
     const id = await createOrder();
-    expect((await request(fx.baseUrl).post(`/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send({ reason: "no" })).status).toBe(200);
-    expect((await request(fx.baseUrl).post(`/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send({})).status).toBe(409);
+    expect((await request(fx.baseUrl).post(`/v1/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send({ reason: "no" })).status).toBe(200);
+    expect((await request(fx.baseUrl).post(`/v1/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send({})).status).toBe(409);
   });
 
   it("forbids a customer cancelling an in_transit order (403) but admin with reason succeeds", async () => {
     const id = await createOrder();
     // advance to in_transit directly through the repo to isolate this test from the consumer
     await fx.pg.prisma.order.update({ where: { id }, data: { status: "in_transit" } });
-    expect((await request(fx.baseUrl).post(`/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send({ reason: "x" })).status).toBe(403);
-    expect((await request(fx.baseUrl).post(`/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(ADMIN, "admin")}`).send({})).status).toBe(400); // reason required
-    expect((await request(fx.baseUrl).post(`/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(ADMIN, "admin")}`).send({ reason: "accident" })).status).toBe(200);
+    expect((await request(fx.baseUrl).post(`/v1/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send({ reason: "x" })).status).toBe(403);
+    expect((await request(fx.baseUrl).post(`/v1/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(ADMIN, "admin")}`).send({})).status).toBe(400); // reason required
+    expect((await request(fx.baseUrl).post(`/v1/orders/${id}/cancel`).set("authorization", `Bearer ${fx.signUserJwt(ADMIN, "admin")}`).send({ reason: "accident" })).status).toBe(200);
   });
 });

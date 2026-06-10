@@ -2,9 +2,9 @@
 # REST Client (VS Code) — runs every endpoint of the service.
 # Boot the server first: `npm run dev` (loads .env via tsx --env-file).
 #
-# NOTE on paths: hitting order-service DIRECTLY (this file) uses NO `/v1`
-# prefix — the service mounts at `/orders`. In production the gateway adds
-# `/v1` and strips it before forwarding (so clients call `/v1/orders`).
+# NOTE on paths: the service mounts its router under `/v1` (e.g. `/v1/orders`),
+# matching what the gateway forwards (it passes `/v1/<svc>/...` through
+# UNCHANGED). So both direct and through-gateway calls use the `/v1` prefix.
 #
 # ─────────────────────────────────────────────────────────────────────────
 # PREREQUISITES (order-service has more moving parts than auth/user):
@@ -77,7 +77,7 @@ GET {{host}}/readyz
 
 ### Create an order — pickup inline, dropoff resolved from user-service. Captures the id.
 # @name create
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -100,7 +100,7 @@ Content-Type: {{contentType}}
 
 ### Create a SCHEDULED order (advisory — publishes order.created immediately)
 # @name createScheduled
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -113,27 +113,27 @@ Content-Type: {{contentType}}
 
 
 ### Get the created order by id (owner)
-GET {{host}}/orders/{{create.response.body.id}}
+GET {{host}}/v1/orders/{{create.response.body.id}}
 Authorization: Bearer {{customerToken}}
 
 
 ### List the caller's orders (cursor-paginated)
-GET {{host}}/orders/me
+GET {{host}}/v1/orders/me
 Authorization: Bearer {{customerToken}}
 
 
 ### List the caller's orders filtered by status
-GET {{host}}/orders/me?status=created&limit=20
+GET {{host}}/v1/orders/me?status=created&limit=20
 Authorization: Bearer {{customerToken}}
 
 
 ### Admin reads any order by id
-GET {{host}}/orders/{{create.response.body.id}}
+GET {{host}}/v1/orders/{{create.response.body.id}}
 Authorization: Bearer {{adminToken}}
 
 
 ### Admin lists ALL orders (admin-only), optional filters
-GET {{host}}/orders?status=created&limit=50
+GET {{host}}/v1/orders?status=created&limit=50
 Authorization: Bearer {{adminToken}}
 
 
@@ -143,7 +143,7 @@ Authorization: Bearer {{adminToken}}
 
 ### Customer cancels a created/assigned order (reason optional)
 # @name cancel
-POST {{host}}/orders/{{create.response.body.id}}/cancel
+POST {{host}}/v1/orders/{{create.response.body.id}}/cancel
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -153,7 +153,7 @@ Content-Type: {{contentType}}
 
 
 ### Admin cancels (e.g. an in_transit order — reason REQUIRED for in_transit)
-POST {{host}}/orders/{{create.response.body.id}}/cancel
+POST {{host}}/v1/orders/{{create.response.body.id}}/cancel
 Authorization: Bearer {{adminToken}}
 Content-Type: {{contentType}}
 
@@ -172,7 +172,7 @@ Content-Type: {{contentType}}
 # Replace <orderId> with the id from the create response. Status only ever
 # advances (created < assigned < in_transit < completed); duplicates and
 # out-of-order events are idempotent no-ops; a cancelled order is never revived.
-# After each, GET /orders/<orderId> to watch the status change, and watch a
+# After each, GET /v1/orders/<orderId> to watch the status change, and watch a
 # queue bound to `order.status.changed` to see what order-service re-publishes.
 #
 # ────── dispatch.driver.assigned  (created → assigned) ──────
@@ -226,17 +226,17 @@ Content-Type: {{contentType}}
 ############################################################
 
 ### No auth — expect 401 unauthorized
-GET {{host}}/orders/me
+GET {{host}}/v1/orders/me
 
 
 ### Bogus JWT — expect 401 unauthorized
-GET {{host}}/orders/me
+GET {{host}}/v1/orders/me
 Authorization: Bearer not.a.real.jwt
 
 
 ### Create with a dropoff address owned by someone else — expect 403 forbidden
 # Use a @dropoffAddressId whose owner userId != @customerId.
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -248,7 +248,7 @@ Content-Type: {{contentType}}
 
 
 ### Create with a nonexistent dropoff address — expect 422 unprocessable_entity
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -260,7 +260,7 @@ Content-Type: {{contentType}}
 
 
 ### Create with zero items — expect 400 validation_failed
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -272,7 +272,7 @@ Content-Type: {{contentType}}
 
 
 ### Create with a 3-letter country — expect 400 validation_failed
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -284,7 +284,7 @@ Content-Type: {{contentType}}
 
 
 ### Create with a past scheduledFor — expect 400 validation_failed
-POST {{host}}/orders
+POST {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -298,17 +298,17 @@ Content-Type: {{contentType}}
 
 ### Read another customer's order — expect 404 (existence-hiding, not 403)
 # Use a different customer's JWT against an order they don't own.
-GET {{host}}/orders/{{create.response.body.id}}
+GET {{host}}/v1/orders/{{create.response.body.id}}
 Authorization: Bearer <paste a DIFFERENT customer's JWT here>
 
 
 ### Customer lists ALL orders (admin-only) — expect 403 forbidden
-GET {{host}}/orders
+GET {{host}}/v1/orders
 Authorization: Bearer {{customerToken}}
 
 
 ### Cancel an already-cancelled / completed order — expect 409 conflict
-POST {{host}}/orders/{{create.response.body.id}}/cancel
+POST {{host}}/v1/orders/{{create.response.body.id}}/cancel
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 
@@ -317,7 +317,7 @@ Content-Type: {{contentType}}
 
 ### Customer cancels an in_transit order — expect 403 (admin only past pickup)
 # First drive the order to in_transit via the events above, then run this.
-POST {{host}}/orders/{{create.response.body.id}}/cancel
+POST {{host}}/v1/orders/{{create.response.body.id}}/cancel
 Authorization: Bearer {{customerToken}}
 Content-Type: {{contentType}}
 

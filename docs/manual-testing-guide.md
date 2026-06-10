@@ -153,18 +153,18 @@ Using `order-service.http` (click "Send Request"), or curl. The happy-path flow 
 
 | # | Action | Expect |
 |---|---|---|
-| 1 | `POST /orders` (pickup inline + `dropoffAddressId` = the stub's `…a1`) | **201**, `Location: /orders/<id>`, body `status:"created"`, `dropoff.street:"Roxas Blvd"` (snapshotted) |
-| 2 | `GET /orders/<id>` (customer) | **200**, the order |
-| 3 | `GET /orders/me` (customer) | **200**, `{ items:[…1 order], nextCursor:null }` |
-| 4 | `GET /orders/<id>` (admin) | **200** (admin reads any) |
-| 5 | `GET /orders` (admin) | **200**, all orders |
-| 6 | `POST /orders/<id>/cancel` (customer) | **200**, `status:"cancelled"` |
+| 1 | `POST /v1/orders` (pickup inline + `dropoffAddressId` = the stub's `…a1`) | **201**, `Location: /v1/orders/<id>`, body `status:"created"`, `dropoff.street:"Roxas Blvd"` (snapshotted) |
+| 2 | `GET /v1/orders/<id>` (customer) | **200**, the order |
+| 3 | `GET /v1/orders/me` (customer) | **200**, `{ items:[…1 order], nextCursor:null }` |
+| 4 | `GET /v1/orders/<id>` (admin) | **200** (admin reads any) |
+| 5 | `GET /v1/orders` (admin) | **200**, all orders |
+| 6 | `POST /v1/orders/<id>/cancel` (customer) | **200**, `status:"cancelled"` |
 
 curl example for step 1:
 
 ```bash
 TOKEN="<paste customer JWT>"
-curl -s -X POST localhost:3003/orders \
+curl -s -X POST localhost:3003/v1/orders \
   -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
   -d '{"pickup":{"label":"Warehouse 3","street":"12 Dock Rd","city":"Manila","country":"PH","lat":14.55,"lng":120.98},
        "dropoffAddressId":"02940000-0000-7000-8000-0000000000a1",
@@ -185,7 +185,7 @@ docker compose exec -T order-postgres psql -U order -d order \
 
 order-service advances status only by **consuming** dispatch/tracking events. Simulate them: open the RabbitMQ management UI at **http://localhost:15672** (login **dev/dev** for `logistics-rabbitmq`; guest/guest for a bare image) → **Exchanges** → `logistics.events` → **Publish message**.
 
-For each, set **Routing key** + **Payload** (replace `<orderId>` with your order's id), then re-`GET /orders/<orderId>` to watch the status climb:
+For each, set **Routing key** + **Payload** (replace `<orderId>` with your order's id), then re-`GET /v1/orders/<orderId>` to watch the status climb:
 
 | Routing key | Payload `data` | Order goes to |
 |---|---|---|
@@ -227,8 +227,8 @@ Run the "Negative-path probes" block in `order-service.http`. Expected:
 | Dropoff address owned by someone else (`…ffff`) | **403** |
 | Nonexistent dropoff address (`…dead`) | **422** |
 | Zero items / 3-letter country / past `scheduledFor` | **400** (RFC 7807 `errors[]`) |
-| `GET /orders/<id>` as a different customer | **404** (existence-hiding, not 403) |
-| `GET /orders` as a customer | **403** |
+| `GET /v1/orders/<id>` as a different customer | **404** (existence-hiding, not 403) |
+| `GET /v1/orders` as a customer | **403** |
 | Cancel an already-cancelled/completed order | **409** |
 | Customer cancels an `in_transit` order | **403** (admin-only past pickup) |
 
@@ -240,7 +240,7 @@ All errors are `application/problem+json` (RFC 7807) with `type`, `title`, `stat
 
 - [ ] `healthz` 200, `readyz` 200.
 - [ ] Create → 201 with a snapshotted dropoff + `Location` header + a `created` history row.
-- [ ] `GET /orders/me` returns only your orders; admin `GET /orders` returns all.
+- [ ] `GET /v1/orders/me` returns only your orders; admin `GET /v1/orders` returns all.
 - [ ] Publishing assigned → in_transit → completed climbs the status and emits `order.status.changed` each time.
 - [ ] Duplicate / out-of-order events are no-ops; cancelled is never revived.
 - [ ] Every negative probe returns the status in the table above (no hangs — a hang would mean the async-error bug regressed).
@@ -258,6 +258,6 @@ docker compose down                 # dev Postgres
 ---
 
 ### Notes / gotchas
-- **Paths have no `/v1`** when hitting order-service directly (`:3003/orders`). The gateway adds `/v1` in production.
+- **Paths are `/v1`-prefixed** (`:3003/v1/orders`) whether you hit order-service directly or via the gateway — the service mounts its router under `/v1` and the gateway forwards `/v1/<svc>/...` UNCHANGED (pass-through).
 - **Create is the only endpoint that calls user-service.** Get/list/cancel and the event lifecycle work without it once an order exists.
 - The lifecycle producers (dispatch, tracking) arrive in Phases 4–5; until then the RabbitMQ UI is your stand-in.

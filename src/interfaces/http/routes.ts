@@ -17,5 +17,5 @@ export function mountOrderRoutes(app: Express, deps: RouteDeps): void {
   r.get("/orders", requireRole(["admin"]), deps.orders.listAdmin);
   r.get("/orders/:id", deps.orders.getById);
   r.post("/orders/:id/cancel", deps.orders.cancel);
-  app.use(r);
+  app.use("/v1", r);
 }

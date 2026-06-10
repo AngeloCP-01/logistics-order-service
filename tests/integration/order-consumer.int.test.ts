@@ -21,7 +21,7 @@ describe("Order consumer (integration)", () => {
 
   async function createOrder(): Promise<string> {
     fx.stubAddresses.set(ADDR.id, ADDR);
-    const res = await request(fx.baseUrl).post("/orders").set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send(body);
+    const res = await request(fx.baseUrl).post("/v1/orders").set("authorization", `Bearer ${fx.signUserJwt(CUSTOMER, "customer")}`).send(body);
     return res.body.id;
   }
 
