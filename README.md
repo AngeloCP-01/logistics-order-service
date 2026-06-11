@@ -11,7 +11,7 @@ See the design spec: [`../docs/superpowers/specs/2026-06-02-order-service-design
 ```
 created ──(dispatch.driver.assigned)──▶ assigned ──(delivery.in_transit)──▶ in_transit ──(delivery.completed)──▶ completed
    │                                       │                                     │
-   └──────────── POST /orders/{id}/cancel ─┴─────────────────────────────────────┘  (graduated authorization)
+   └──────────── POST /v1/orders/{id}/cancel ─┴─────────────────────────────────────┘  (graduated authorization)
 ```
 
 - **API-driven** transitions: `create`, `cancel` (authoritative).
@@ -19,15 +19,15 @@ created ──(dispatch.driver.assigned)──▶ assigned ──(delivery.in_tr
 - Cancellation: `created`/`assigned` by the owner or an admin; `in_transit` by an admin only (reason required). No billing, so no refund/compensation.
 - Addresses are **snapshotted immutably** at creation: pickup supplied inline, dropoff resolved from the caller's saved address in user-service (service-JWT call, ownership-verified).
 
-## API surface (via the gateway, `/v1` prefix added there)
+## API surface (mounted under `/v1/orders`; the gateway forwards `/v1` pass-through)
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/orders` | customer | Create an order |
-| `GET` | `/orders/me` | any user | The caller's orders (cursor-paginated, `?status=`) |
-| `GET` | `/orders/{id}` | owner or admin | Single order |
-| `POST` | `/orders/{id}/cancel` | per matrix | Cancel (`{ reason? }`) |
-| `GET` | `/orders` | admin | All orders (`?status=&customerId=`) |
+| `POST` | `/v1/orders` | customer | Create an order |
+| `GET` | `/v1/orders/me` | any user | The caller's orders (cursor-paginated, `?status=`) |
+| `GET` | `/v1/orders/{id}` | owner or admin | Single order |
+| `POST` | `/v1/orders/{id}/cancel` | per matrix | Cancel (`{ reason? }`) |
+| `GET` | `/v1/orders` | admin | All orders (`?status=&customerId=`) |
 | `GET` | `/healthz` · `/readyz` | none | Liveness / readiness (DB + RabbitMQ) |
 
 Errors are RFC 7807 Problem Details. Lists return `{ items, nextCursor }`.
