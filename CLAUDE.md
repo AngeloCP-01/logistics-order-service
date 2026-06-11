@@ -26,7 +26,7 @@ Owns the order aggregate. Creates orders, drives them through their lifecycle (c
 5. **Hybrid address input** — dropoff resolved from a saved-address id via user-service (service JWT, ownership-verified via returned `userId`), pickup inline; both snapshotted immutably.
 6. **Monotonic-rank reflector** — reflected events advance only on strictly-higher rank; equal/lower = idempotent no-op; `cancelled` terminal + authoritative (never resurrected).
 
-Delegated: customer-only creation (no admin-on-behalf); no customer `GET /orders` (admin-only list; customers use `/orders/me`).
+Delegated: customer-only creation (no admin-on-behalf); no customer `GET /v1/orders` (admin-only list; customers use `/v1/orders/me`).
 
 ## Database (Neon Postgres)
 

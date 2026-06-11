@@ -110,7 +110,7 @@ The stub ignores the service-JWT signature (it only checks the header is present
 
 ### Path A — real user-service (realistic)
 
-1. Boot user-service (its own Postgres + RabbitMQ; see its `docs/user-service.http`). Seed a customer profile (via auth-service `POST /auth/register`, or a manual `user.registered` envelope) and create an address — **note its `id` and the owner `userId`**.
+1. Boot user-service (its own Postgres + RabbitMQ; see its `docs/user-service.http`). Seed a customer profile (via auth-service `POST /v1/auth/register`, or a manual `user.registered` envelope) and create an address — **note its `id` and the owner `userId`**.
 2. Set `ORDER_USER_SERVICE_URL` to user-service's base URL.
 3. Align secrets: order-service's `SERVICE_JWT_SECRET` **must equal** user-service's `USER_SERVICE_JWT_SECRET`, and your user JWT must be signed with the secret order-service verifies with (`ORDER_JWT_SECRET`). In a full real setup `ORDER_JWT_SECRET == AUTH_JWT_SECRET`.
 
