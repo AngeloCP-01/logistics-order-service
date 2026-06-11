@@ -55,7 +55,7 @@ npm run prisma:migrate    # applies 20260602075820_init_orders to :5436
 > |---|---|---|
 > | An **auth-service-minted** user token | `ORDER_JWT_SECRET` **==** auth-service's `AUTH_JWT_SECRET` | `401 invalid token` on order-service |
 > | **Real user-service** for the address | order's `SERVICE_JWT_SECRET` **==** user-service's `USER_SERVICE_JWT_SECRET` | `500`/`401` resolving the dropoff |
-> | The same token on **user-service** (to create the address) | user-service's `USER_JWT_SECRET` **==** `AUTH_JWT_SECRET` | `401` on `POST /users/me/addresses` |
+> | The same token on **user-service** (to create the address) | user-service's `USER_JWT_SECRET` **==** `AUTH_JWT_SECRET` | `401` on `POST /v1/users/me/addresses` |
 > | `ORDER_USER_SERVICE_URL` | points at **user-service :3001** (or the stub), **not** auth's **:3000** | `422 dropoff address … not found` (you hit the wrong service) |
 >
 > And always: `ORDER_JWT_SECRET` **≠** `SERVICE_JWT_SECRET` (boot refuses otherwise). Quick check:

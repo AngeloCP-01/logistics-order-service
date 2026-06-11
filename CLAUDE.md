@@ -14,7 +14,7 @@ Owns the order aggregate. Creates orders, drives them through their lifecycle (c
 - **Tech**: Node 20 LTS, TypeScript, Express, Prisma + Neon Postgres, Jest.
 - **Events published**: `order.created`, `order.status.changed`, `order.cancelled`.
 - **Events consumed**: `dispatch.driver.assigned` (move to `assigned`), `delivery.in_transit` (move to `in_transit`), `delivery.completed` (move to `completed`).
-- **Sync HTTP outbound**: → `user-service` `/users/{id}/addresses/{addressId}` (resolve customer address at order creation). Through gateway, with service JWT.
+- **Sync HTTP outbound**: → `user-service` `/v1/users/internal/addresses/{addressId}` (resolve customer address at order creation). Through gateway, with service JWT.
 - **Public endpoints** (via gateway): `/v1/orders`, `/v1/orders/{id}`, `/v1/orders/{id}/cancel`, `/v1/orders/me`, `/healthz`, `/readyz`.
 
 ### Spec-locked decisions (2026-06-02 — see [`../docs/superpowers/specs/2026-06-02-order-service-design.md`](../docs/superpowers/specs/2026-06-02-order-service-design.md))
